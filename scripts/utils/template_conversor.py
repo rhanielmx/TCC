@@ -120,7 +120,7 @@ def convertTemplateToISO(template):
     ##EXTBYTES(2 bytes)
     templateISO[-2:] = EXTBYTES.to_bytes(2, byteorder='big', signed=False)
 
-    return templateISO
+    return bytes(templateISO)
 
 def convertTemplateToProtocolBuffer(template):
   templatePB=template_pb2.Template()

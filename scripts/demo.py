@@ -6,6 +6,9 @@ import json
 import numpy as np
 from base64 import b64decode, b64encode
 from PIL import Image
+import wsq
+
+from io import BytesIO
 
 def open_image(src: str) -> np.ndarray:
     img = Image.open(src)
@@ -32,17 +35,49 @@ def loadFileBase64( fn ):
 	data = open( fn, "rb").read()
 	return b64encode(data)
 
-img = loadFileBase64('teste.wsq')
-img1 = open_image('NIST4_F0001_01.bmp')
-enhanced1 = enhance_function(img1, filter='CARTOON')
-t1 = decode_extract_wsq(img, qualityThreshold=0, event_id='1', maxMinutia=60)
+def crop_roi(filename):
+    img_base64 = loadFileBase64(filename)
+    img_np = np.asarray(Image.open(filename))
 
-img2 = open_image('FVC2002DB2A_1_1.bmp')
-enhanced2 = enhance_function(img2, filter='CARTOON')
-t2 = decode_extract_wsq(img.decode('utf-8'), qualityThreshold=0, event_id='1', maxMinutia=120)
+    roi = json.loads(crop_roi_wsq(img_base64))
+    x = roi['x']
+    y = roi['y']
+    width = roi['width']
+    height = roi['height']
 
-print(len(t1),len(t2))
+    cropped_img = img_np[y:y+height,x:x+width]
+    Image.fromarray(cropped_img).save(filename.replace('wsq','png'))
 
+    return cropped_img
+
+# import wsq
+# img = Image.open('DB1_B/101_3.tif')
+# img.save('101_3.wsq')
+# img = Image.open('DB1_B/101_4.tif')
+# img.save('101_4.wsq')
+
+# cropped1 = crop_roi('101_3.wsq')
+# cropped2 = crop_roi('101_4.wsq')
+# enhanced1 = enhance_function(img1, filter='CARTOON')
+
+# for filter in ['CLAHE','CARTOON','NORMALIZATION','LCLAHE','WIENER']:
+#     enhanced = enhance_function(cropped1,filter=filter)
+#     Image.fromarray(enhanced).save(f'enhanced_101_3_{filter}.png')
+
+
+# t1 = fingerjet_numpy(cropped1, qualityThreshold=0, event_id='1', maxMinutia=100)
+
+# img2 = loadFileBase64('101_4.wsq')
+# t2 = fingerjet_numpy(cropped2, qualityThreshold=0, event_id='1', maxMinutia=100)
+
+img1 = open_image('bin.png')
+img2 = open_image('101_3.png')
+
+t1 = fingerjet_numpy(np.asarray(img1), qualityThreshold=0, event_id='1')
+t2 = fingerjet_numpy(np.asarray(img2), qualityThreshold=0, event_id='1')
+
+print(len(json.loads(t1)['minutiae']))
+print(len(json.loads(t2)['minutiae']))
 
 print(f"t1xt1={m3gl_match_json(t1,t1)}")
 print(f"t2xt2={m3gl_match_json(t2,t2)}")

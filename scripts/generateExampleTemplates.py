@@ -44,4 +44,4 @@ for i in range(minutiaCount+1):
 
     sizeDataFrame = sizeDataFrame.append(new_entry,ignore_index=True)
 
-sizeDataFrame.to_csv('data/format_size_comparation.csv',index=False)
+sizeDataFrame.to_csv('data/format_size_comparation.csv', index=False)
