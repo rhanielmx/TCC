@@ -3,17 +3,19 @@ import sys  # nopep8
 sys.path.insert(0, '/home/decode_nfiq/build')  # nopep8
 from finger_id import *  # nopep8
 
-from typing import Union, Sequence
+from typing import Union, Sequence, Tuple
 from datetime import datetime
 import cv2
 import json
 import numpy as np
 from base64 import b64decode, b64encode
 from PIL import Image
+from io import BytesIO
+from pyzbar.pyzbar import decode
 
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import AES, PKCS1_OAEP
-from Crypto.Util.Padding import pad
+from Crypto.Util.Padding import pad, unpad
 
 
 import segno
@@ -97,8 +99,9 @@ class QRCodeData:
 
 
 class TBD:
-    def __init__(self, public_key:str, aes_key:str) -> None:
+    def __init__(self, public_key:str, private_key:str, aes_key:str) -> None:
         self.public_key = RSA.import_key(open(public_key).read())        
+        self.private_key = RSA.import_key(open(private_key).read())        
         self.aes_key = open(aes_key, 'rb').read()
 
     def isBase64(string_to_check: str) -> bool:
@@ -167,63 +170,106 @@ class TBD:
         return truncated_template
 
     def encrypt_data(self, data):
-        cipherRSA = PKCS1_OAEP.new(self.public_key)
-        encrypted_symmetric_key = cipherRSA.encrypt(self.aes_key)
-
         cipherAES = AES.new(self.aes_key, AES.MODE_CBC)
         ciphertext = cipherAES.encrypt(pad(data, AES.block_size))
 
-        return ciphertext, encrypted_symmetric_key
+        cipherRSA = PKCS1_OAEP.new(self.public_key)
+        encrypted_symmetric_key = cipherRSA.encrypt(self.aes_key)   
+
+        return ciphertext, encrypted_symmetric_key, cipherAES.iv
+
+    def decrypt_data(self, data, encrypted_key, iv) -> bytes:
+        cipherRSA = PKCS1_OAEP.new(self.private_key)
+        symmetric_key = cipherRSA.decrypt(encrypted_key)
+
+        cipherAES = AES.new(symmetric_key, AES.MODE_CBC, iv)
+        decrypted_data = cipherAES.decrypt(data)
+        original_data = unpad(decrypted_data, AES.block_size)
+
+        return original_data
+
 
     def generate_qrcode(self, name: str, template: Union[str,bytes], template_type: str) -> bytes:
         timestamp = datetime.utcnow().timestamp()
         timestamp_as_string = str(timestamp).encode("utf-8")
 
         if template_type == 'ISO':
-            from convertTemplateToISO import convertTemplateToISO
+            from utils.template_conversor import convertTemplateToISO
             converted_template = convertTemplateToISO(template)
         if template_type == 'XYT':
-            from convertTemplateToXYT import convertTemplateToXYT
+            from utils.template_conversor import convertTemplateToXYT
             converted_template = convertTemplateToXYT(template).encode('utf-8')
         if template_type == 'PB':
-            from convertTemplateToProtocolBuffer import convertTemplateToProtocolBuffer
+            from utils.template_conversor import convertTemplateToProtocolBuffer
             converted_template = convertTemplateToProtocolBuffer(template).SerializeToString()
         if template_type == 'JSON':
             converted_template = json.dumps(template).encode('utf-8')
             
-        encrypted_data , encrypted_key = self.encrypt_data(converted_template)
-
+        encrypted_template , encrypted_key, iv = self.encrypt_data(converted_template)
+        data_block = encrypted_key + iv + encrypted_template
 
         data_to_encode = b64encode(name.encode(
-            "utf-8")) + b' ' + b64encode(encrypted_data) + b64encode(encrypted_key) + b' ' + b64encode(timestamp_as_string)
+            "utf-8")) + b' ' + b64encode(data_block) + b' ' + b64encode(timestamp_as_string)
 
         qrcode = segno.make(data_to_encode)
+       
         return qrcode
 
-    def read_qrcode(self, qrcode: str) -> QRCodeData:
-        pass
+    def read_qrcode(self, qrcode: str) -> Tuple[str, bytes, bytes, bytes, str]:
+        if TBD.isBase64(qrcode):
+            img = Image.open(BytesIO(b64decode(qrcode)))
+        else:
+            img = Image.open(qrcode)
+        
+        qrcode_payload = decode(img)[0].data
+        user_data, data_block, timestamp = qrcode_payload.split(b' ')
+        
+        user_data = b64decode(user_data).decode('utf-8')
+        data_block = b64decode(data_block)
+        encrypted_key = data_block[:128]
+        iv = data_block[128:144]
+        encrypted_template = data_block[144:]
+        timestamp = b64decode(timestamp).decode()
+
+        return user_data, encrypted_template, encrypted_key, iv, timestamp
+
 
     def validate_qrcode(self, qrcode: str, input_minutiae: Template, matcher: str = 'm3gl') -> bool:
-        input_qrcode = self.read_qrcode(qrcode)
-        identity_is_valid = self.match_minutiae(
-            matcher, input_qrcode.minutiae, input_minutiae)
-        return identity_is_valid
+        user_data, encrypted_template, encrypted_key, iv, timestamp = self.read_qrcode(qrcode)
+        templateISO = self.decrypt_data(encrypted_template, encrypted_key, iv)
+
+        print(templateISO[28]>>6)
+        px = bytearray(2)
+        px[0] = templateISO[28] & ((1<<6)-1)
+        px[1] = templateISO[29]
+
+        py = templateISO[30:32]
+        angle = templateISO[32]
+
+        print(int.from_bytes(px,'big'))
+        print(int.from_bytes(py,'big'))
+        print(0.296796-math.radians(angle*(360/256)))
+        
+        # identity_is_valid = self.match_minutiae(
+        #     matcher, input_qrcode.minutiae, input_minutiae)
+        # return identity_is_valid
 
 
 if __name__ == '__main__':
-    fingerlink = TBD(public_key='assets/public_key.pem', aes_key='assets/aes_key.bin')
+    fingerlink = TBD(public_key='assets/public_key.pem', private_key='assets/private_key.pem', aes_key='assets/aes_key.bin')
 
     image_name = 'NIST4_F0001_01'
     template = fingerlink.extract_minutiae(
         f'images/fingerprints/{image_name}.bmp', extractor=mindtct_numpy)
     template = fingerlink.trunc_template(template, maxMinutia=100)
-
-    template_type = 'JSON'
+    print(template['minutiae'][0])
+    template_type = 'ISO'
 
     qrcode = fingerlink.generate_qrcode(
         name='Rhaniel Magalhães Xavier', template=template, template_type=template_type)
 
     qrcode.save(f'images/qrcodes/{image_name}_{template_type}_qrcode_v{qrcode.version}.png', scale=5)
-  
+    user_data, encrypted_template, encrypted_key, iv, timestamp = fingerlink.read_qrcode(f'images/qrcodes/{image_name}_{template_type}_qrcode_v{qrcode.version}.png')
+    fingerlink.validate_qrcode(f'images/qrcodes/{image_name}_{template_type}_qrcode_v{qrcode.version}.png', input_minutiae='')
 
 
