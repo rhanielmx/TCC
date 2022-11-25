@@ -1,0 +1,14 @@
+# **/*.wsq
+# **/*.png
+# **/*.jpg
+# **/*.bmp
+**/*.csv
+**/*.pem
+**/*.bin
+
+assets/
+data/
+dataset/
+decode_nfiq/
+templates/
+**/__pycache__/**
