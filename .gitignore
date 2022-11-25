@@ -1,10 +1,11 @@
-# **/*.wsq
-# **/*.png
-# **/*.jpg
-# **/*.bmp
+**/*.wsq
+**/*.png
+**/*.jpg
+**/*.bmp
 **/*.csv
 **/*.pem
 **/*.bin
+*.zip
 
 assets/
 data/
