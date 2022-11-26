@@ -6,6 +6,8 @@
 **/*.pem
 **/*.bin
 *.zip
+**/teste.py
+
 
 assets/
 data/
