@@ -8,18 +8,20 @@ from datetime import datetime
 import cv2
 import json
 import numpy as np
+import math
+import segno
+
 from base64 import b64decode, b64encode
 from PIL import Image
 from io import BytesIO
 from pyzbar.pyzbar import decode
-
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.Util.Padding import pad, unpad
 from Crypto.Random import get_random_bytes
 
-import segno
-import math
+from utils.decorators import calculate_ram_usage, calculate_elapsed_time
+
 
 def open_image(src: str) -> np.ndarray:
     img = Image.open(src)
@@ -28,6 +30,7 @@ def open_image(src: str) -> np.ndarray:
 # TODO - Atualizar pra python3.7 pra poder utilizar @dataclass
 
 # @dataclass
+from filprofiler.api import profile
 
 
 class Minutia:
@@ -101,8 +104,8 @@ class QRCodeData:
 class TBD:
     def __init__(self, public_key:str, private_key:str) -> None:
         self.public_key = RSA.import_key(open(public_key).read())        
-        self.private_key = RSA.import_key(open(private_key).read())        
-
+        self.private_key = RSA.import_key(open(private_key).read())
+    
     def isBase64(string_to_check: str) -> bool:
         try:
             if isinstance(string_to_check, str):
@@ -192,8 +195,7 @@ class TBD:
         original_data = unpad(decrypted_data, AES.block_size)
 
         return original_data
-
-
+    
     def generate_qrcode(self, name: str, template: Union[str,bytes], template_type: str) -> bytes:
         timestamp = datetime.utcnow().timestamp()
         timestamp_as_string = str(timestamp).encode("utf-8")
@@ -219,6 +221,15 @@ class TBD:
         qrcode = segno.make(data_to_encode)
        
         return qrcode
+
+    @calculate_elapsed_time
+    def time_decorated_generate_qrcode(self, name: str, template: Union[str,bytes], template_type: str):
+        return self.generate_qrcode(name, template, template_type)
+
+    @calculate_ram_usage
+    def ram_decorated_generate_qrcode(self, name: str, template: Union[str,bytes], template_type: str):
+        return self.generate_qrcode(name, template, template_type)
+        
 
     def read_qrcode(self, qrcode: str) -> Tuple[str, bytes, bytes, bytes, str]:
         if TBD.isBase64(qrcode):
@@ -249,23 +260,45 @@ class TBD:
 
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Test the fingerlink.')
+    parser.add_argument('--minutiae', '-m', type=int,
+                    help='number of minutiae')
+
+    parser.add_argument('--type', '-t', help='template type')
+    parser.add_argument('--decorator', '-d', help='statistics decorator')
+    args = parser.parse_args()
+
+
     fingerlink = TBD(public_key='assets/public_key.pem', private_key='assets/private_key.pem')
 
     image_name = 'NIST4_F0001_01'
     template = fingerlink.extract_minutiae(
-        f'images/fingerprints/{image_name}.bmp', extractor=mindtct_numpy)
-    template = fingerlink.trunc_template(template, maxMinutia=100)
-    template_type = 'ISO'
+        f'images/fingerprints/{image_name}.bmp', extractor=fingerjet_numpy)
+    
+    
+    if args.minutiae > len(template.minutiae):
+        raise ValueError
 
-    qrcode = fingerlink.generate_qrcode(
-        name='Rhaniel Magalhães Xavier', template=template, template_type=template_type)
+    template = fingerlink.trunc_template(template, maxMinutia=args.minutiae)
+    # template=template.as_json()
+    template_type = args.type
+
+    if args.decorator == 'time':
+        qrcode = fingerlink.time_decorated_generate_qrcode(name='Rhaniel Magalhães Xavier', template=template, template_type=template_type)
+    elif args.decorator == 'ram':
+        qrcode = fingerlink.ram_decorated_generate_qrcode(name='Rhaniel Magalhães Xavier', template=template, template_type=template_type)
+    else:
+        qrcode = fingerlink.generate_qrcode(name='Rhaniel Magalhães Xavier', template=template, template_type=template_type)
+    # qrcode = profile(lambda:fingerlink.generate_qrcode(
+    #     name='Rhaniel Magalhães Xavier', template=template, template_type=template_type),'/tmp/result-30')
 
     qrcode.save(f'images/qrcodes/{image_name}_{template_type}_qrcode_v{qrcode.version}.png', scale=5)
-    user_data, encrypted_template, encrypted_key, iv, timestamp = fingerlink.read_qrcode(f'images/qrcodes/{image_name}_{template_type}_qrcode_v{qrcode.version}.png')
+    # user_data, encrypted_template, encrypted_key, iv, timestamp = fingerlink.read_qrcode(f'images/qrcodes/{image_name}_{template_type}_qrcode_v{qrcode.version}.png')
     
-    from utils.template_conversor import convertTemplateToISO
-    is_valid = fingerlink.validate_qrcode(f'images/qrcodes/{image_name}_{template_type}_qrcode_v{qrcode.version}.png', input_template=convertTemplateToISO(template))
-    print(f'is_valid: {is_valid}')
+    # from utils.template_conversor import convertTemplateToISO
+    # is_valid = fingerlink.validate_qrcode(f'images/qrcodes/{image_name}_{template_type}_qrcode_v{qrcode.version}.png', input_template=convertTemplateToISO(template))
+    # print(f'is_valid: {is_valid}')
     # import copy
 
     # template2 = copy.deepcopy(template)

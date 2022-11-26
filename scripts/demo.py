@@ -10,6 +10,17 @@ import wsq
 
 from io import BytesIO
 
+import psutil
+
+def calculate_ram_usage(func):
+    def wrapper(*args, **kwargs):
+        ram_usage = psutil.Process().memory_info().rss / (1024 * 1024)
+        result = func(*args, **kwargs)
+        print(psutil.Process().memory_info().rss / (1024 * 1024) - ram_usage)
+        return result
+    return wrapper
+
+@calculate_ram_usage
 def open_image(src: str) -> np.ndarray:
     img = Image.open(src)
     return np.asarray(img).copy()
@@ -69,6 +80,8 @@ def crop_roi(filename):
 
 # img2 = loadFileBase64('101_4.wsq')
 # t2 = fingerjet_numpy(cropped2, qualityThreshold=0, event_id='1', maxMinutia=100)
+
+
 
 img1 = open_image('bin.png')
 img2 = open_image('101_3.png')
